@@ -1,0 +1,9 @@
+mujoco>=3.1
+gymnasium>=1.0
+numpy
+scipy
+pillow
+trimesh
+pygame
+imageio
+imageio-ffmpeg

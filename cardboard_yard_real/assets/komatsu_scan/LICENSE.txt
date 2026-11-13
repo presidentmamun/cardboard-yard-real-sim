@@ -1,0 +1,5 @@
+Loader looks: "Day 153: Komatsu Wheel Loader" by uttamg911 (Sketchfab,
+https://sketchfab.com/3d-models/05c8a6e6d7c3440c8b1180c6fc50b9e3), licensed CC BY-NC-SA 4.0
+(https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only.
+Changes: ground removed, cut into rear/front/boom/bucket/wheel parts, rescaled per part to the
+simulated loader, texture downscaled to 2048 px (make_scan_loader.py). Derived files: same licence.

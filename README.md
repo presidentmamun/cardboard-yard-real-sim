@@ -1,0 +1,166 @@
+# CardboardYardReal simulator v4 (standalone)
+
+A Komatsu WA100-8 wheel loader in a 3D MuJoCo copy of the real recycling site: it scoops cardboard from a
+pile and dumps it into the hopper, with obstacles and people walking around. Physics v4 = hydraulics with
+force / flow limits and lift / tilt cylinder pressures. This is the same simulator (same code, same
+physics) that made the v4 world-model dataset. The folder runs on its own, without the stable-worldmodel project.
+
+The loader body mesh is a CC BY-NC-SA scan (non-commercial, credit the author): see
+`cardboard_yard_real/assets/komatsu_scan/LICENSE.txt`.
+
+## Setup (once)
+
+1. Install Python 3.10 or newer from python.org (tick "Add python.exe to PATH").
+2. Double-click `setup.bat`. It creates `.venv` here and installs the packages from `requirements.txt`.
+
+## Run
+
+| File | What it does |
+|---|---|
+| `run_manual.bat` | You drive the loader with the keyboard; each drive is saved as a CSV in `drives\` |
+| `run_demo.bat` | The built-in expert drives; a 3D MuJoCo window shows it (mouse: rotate / zoom) |
+| `run_replay.bat` | Watch a saved drive again: drag a CSV onto it (or `run_replay.bat drives\<file>.csv`) |
+
+The first time, `run_*.bat` runs `setup.bat` by itself if `.venv` is missing.
+
+From a terminal instead (in this folder):
+
+```
+.venv\Scripts\python.exe manual.py --camera top --seed 3
+.venv\Scripts\python.exe demo.py --viewer --steps 3000
+.venv\Scripts\python.exe demo.py --video yard.mp4 --steps 700    # 2x2 camera video, no window
+.venv\Scripts\python.exe demo.py --csv ep.csv --steps 3000       # per-step data as CSV (see below)
+.venv\Scripts\python.exe replay.py drives\drive_20261030_101500_seed0.csv   # watch a saved drive again
+```
+
+The first start takes a minute or two (it loads the meshes and textures). Rendering video is slow on a laptop.
+
+## Keys (manual.py, hold the key)
+
+| Key | Action |
+|---|---|
+| W / S | drive forward / back |
+| A / D | steer left / right |
+| I / K | boom up / down |
+| J / L | bucket curl (lip up, holds the load) / dump (lip down) |
+| C | next camera: chase, top, cab, rear |
+| P | save the drive so far now (you can keep driving) |
+| R | save this drive, then start a new episode (new random yard, seed + 1) |
+| Esc | save this drive, then quit |
+
+## Joystick / gamepad
+
+`manual.py` also reads a joystick or gamepad (Xbox / PlayStation pad, USB joystick). Plug it in **before**
+starting `run_manual.bat`; the console then prints `joystick: <name>`. The sticks are analog: a half-pushed
+stick gives about 0.5, so drives are smoother than with keys (keys give only -1, 0, +1). Keys keep working; a
+held key wins over the stick on that lever.
+
+Default layout (Xbox-style pad):
+
+| Stick / button | Action |
+|---|---|
+| left stick up / down | drive forward / back |
+| left stick left / right | steer left / right |
+| right stick up / down | boom up / down |
+| right stick left / right | bucket curl (lip up) / dump |
+| button 0 (A) | save the drive now (like P) |
+| button 7 (Start) | new episode (like R) |
+
+Other joysticks number their axes differently. Find yours with
+`.venv\Scripts\python.exe joy_test.py` (move each stick and see which axis number changes), then set
+`--joy-map` (axis numbers for drive, steer, boom, bucket) and `--joy-invert` (1 = flip that axis) when a lever
+goes the wrong way, and `--joy-dead` for the dead zone (default 0.1):
+
+```
+.venv\Scripts\python.exe manual.py --joy-map 1,0,3,2 --joy-invert 1,1,1,1 --joy-dead 0.1
+```
+
+Joystick drives are saved and replayed exactly like keyboard drives (the CSV holds the analog values).
+
+## Save a manual drive and watch it again
+
+1. Drive with `run_manual.bat`. When you press R or Esc, or the episode ends, the drive is saved in the
+   `drives` folder as two files:
+   - `drives\drive_<date>_<time>_seed<N>.csv`: one row per step: time, your 4 actions and the 12 proprio values
+     (columns in "Data per step" below). Open it in Excel or Python.
+   - `drives\drive_<date>_<time>_seed<N>_start.npz`: how the episode started (seed, full sim state). Keep it
+     next to the CSV: without it the replay cannot rebuild the same yard.
+   `manual.py --no-save` turns saving off; `--out-dir D:\mydrives` saves elsewhere.
+2. Watch it again: drag the CSV onto `run_replay.bat`, or
+   ```
+   .venv\Scripts\python.exe replay.py drives\drive_20261030_101500_seed0.csv               # window (C camera, Space pause, Esc quit)
+   .venv\Scripts\python.exe replay.py drives\drive_20261030_101500_seed0.csv --video d.mp4  # 2x2 camera video
+   .venv\Scripts\python.exe replay.py drives\drive_20261030_101500_seed0.csv --check        # only compare
+   ```
+   The replay starts the same yard from the seed and feeds the CSV's actions step by step, so the loader, the
+   cardboard and the people move exactly as in your drive. At the end it prints how far the replayed loader is
+   from the CSV: a manual or demo drive gives 0.000 m (tested: 600 and 1000 steps).
+3. You can also edit the action columns of a CSV (e.g. in Excel, keep the column names) and replay it: the
+   loader then does your edited drive in the same yard. The proprio columns are only used for the comparison.
+
+`demo.py --csv ep.csv` saves the expert's drive the same way (`ep.csv` + `ep_start.npz`).
+
+### Replay an episode from the v4 dataset
+
+Dataset episodes exported with `cy_export_csv.py --start` (office PC, `C:\office-projects\sim_csv`) come with a
+`_start.npz` that holds the step-0 sim state but no seed. The replay starts from that state; it is close but not
+bit-exact (the state does not hold the solver's warm start and the people's random generator): tested on a
+3000-step episode, the loader stayed within 0.34 m of the recording (mean 0.23 m).
+
+Notes:
+- Keep the actions at full precision. The saved CSVs write them with 9 digits; rounding them to 5 digits
+  already made a 1000-step replay drift by up to 0.35 m (cardboard contacts amplify tiny differences).
+- Replay with the same physics profile (`--physics v4`, the default) as the drive.
+
+## Data per step (one step = 0.1 s, 10 Hz)
+
+Action, 4 numbers in [-1, 1]:
+
+| # | Column | Meaning |
+|---|---|---|
+| 0 | drive | forward (+) / back (-) speed |
+| 1 | steering | steer left / right |
+| 2 | boom_lever | boom up (+) / down |
+| 3 | bucket_lever | bucket curl (+, lip up) / dump |
+
+Proprio, 12 numbers (`env._proprio()`):
+
+| # | Column | Meaning |
+|---|---|---|
+| 0, 1 | pos_x_m, pos_y_m | machine position (m, world frame) |
+| 2, 3 | yaw_cos, yaw_sin | heading |
+| 4, 5 | vel_x_mps, vel_y_mps | velocity (m/s, world frame) |
+| 6 | steer_angle_rad | articulation angle |
+| 7 | boom_angle_rad | boom angle |
+| 8 | bucket_angle_rad | bucket angle |
+| 9 | yaw_rate_radps | turning rate |
+| 10, 11 | lift_cyl_pressure_mpa, tilt_cyl_pressure_mpa | lift / tilt cylinder pressure (MPa) |
+
+`demo.py --csv` writes these with `time_s`, `step` and `yaw_deg`, the same columns as the CSVs exported from the dataset.
+
+## Files
+
+| Path | Content |
+|---|---|
+| `cardboard_yard_real/env.py` | the environment `CardboardYardRealEnv(physics='v4')` (gymnasium API) |
+| `cardboard_yard_real/expert_v1.py` | scripted expert `LoaderExpertPolicyV1` (the v4 dataset's expert) |
+| `cardboard_yard_real/physics.py`, `hydraulics.py`, `people.py`, `wa100_*.py` | physics profiles, hydraulics, walking people, the WA100-8 model |
+| `cardboard_yard_real/assets/` | textures, meshes, the scanned loader body, mesh cache |
+| `cardboard_yard/` | the base environment and expert it builds on |
+| `demo.py`, `manual.py`, `replay.py` | the programs above |
+| `recording.py` | saves / loads a drive (CSV + `_start.npz`) |
+| `joy_test.py` | shows a joystick's axis / button numbers (for `--joy-map`) |
+
+Use in your own code:
+
+```python
+import sys; sys.path.insert(0, r'path\to\this\folder')
+from cardboard_yard_real import CardboardYardRealEnv
+from cardboard_yard_real.expert_v1 import LoaderExpertPolicyV1
+env = CardboardYardRealEnv(physics='v4', camera='top')
+obs, info = env.reset(seed=0)
+policy = LoaderExpertPolicyV1(seed=0)
+obs, reward, terminated, truncated, info = env.step(policy.act_single(env))
+img = env.render()           # 224x224 RGB from the top camera (what the world model sees)
+proprio = env._proprio()     # the 12 values above
+```
