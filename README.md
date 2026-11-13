@@ -154,6 +154,16 @@ goes the wrong way, and `--joy-dead` for the dead zone (default 0.1):
 
 Joystick drives are saved and replayed exactly like keyboard drives (the CSV holds the analog values).
 
+## When an episode ends
+
+| Event | What happens |
+|---|---|
+| The loader touches a **person** | The episode ends at once (reward -10). The window shows `HIT_WORKER | END (R = new episode)` and the loader no longer moves, whatever keys you press. Press **R** for a new episode (new random yard, seed + 1) or **Esc** to quit. |
+| **25 pieces** are in the hopper | The episode ends (success), same `END` line. Press **R** for a new one. |
+| The loader touches a column, wall, pallet or the hopper | The episode goes on. The top line only shows `HIT_STATIC` or `HIT_OBSTACLE` while it touches. |
+
+The drive up to the end is saved automatically (see below), also after an accident.
+
 ## Save a manual drive and watch it again
 
 1. Drive with `run_manual.bat`. When you press R or Esc, or the episode ends, the drive is saved in the
