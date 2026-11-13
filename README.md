@@ -42,8 +42,39 @@ Limits of the brake model (be aware when you use the data):
   from a Komatsu data sheet.
 - The loader is driven by a speed controller on a flat floor: the brake makes the commanded speed drop faster.
   There are no brake discs, no wheel lock / skid, and no slopes, so "holds on a slope" cannot be tested here.
-- The scripted expert (`demo.py`) does not use the brake: it drives exactly as in v4.
+- The v4 dataset's expert (`demo.py`, expert v1) does not use the brake: it drives exactly as in v4. The braking
+  expert is `--expert v2` (below).
 - Hard braking with a full, raised bucket can throw cardboard out (the pieces are real bodies), as on the real machine.
+
+### Braking expert (expert v2)
+
+`cardboard_yard_real/expert_v2.py` (`LoaderExpertPolicyV2`) is the v4 dataset's expert plus the brake pedal, for
+collecting v5 data that contains braking. Planning, steering and arm work are unchanged; it only adds the pedal:
+
+- safety stop for a person or for a column / wall / the hopper: full brake while still rolling, then (person) a
+  light brake held while it waits
+- ordinary stops and direction changes: a soft brake, harder at speed, softer with a loaded bucket
+- no brake while it drives on; the parking brake is never used
+
+```
+.venv\Scripts\python.exe demo.py --expert v2 --viewer            # physics v5 by default with expert v2
+.venv\Scripts\python.exe demo.py --expert v2 --csv ep.csv --steps 3000
+```
+
+Check against expert v1 on physics v5, seeds 0-7, up to 2000 steps each, no noise (small sample; single seeds
+differ a lot either way because cardboard contacts amplify small changes):
+
+| | expert v1 | expert v2 |
+|---|---|---|
+| pieces in the hopper (8 episodes) | 175 | 205 |
+| episodes that reached the hopper target | 5 | 6 |
+| steps used | 12190 | 10909 |
+| people touched | 0 | 0 |
+| steps touching a column / wall / the hopper | 14 | 2 |
+| steps with the brake pedal down | 0 | 433 (4.0 %) |
+
+Old v4 data stays usable: v4 episodes with `brake_pedal = 0`, `park_brake = 0` added are valid v5 data
+(v5 without brake input is bit-equal to v4).
 
 ## Setup (once)
 
@@ -198,6 +229,7 @@ Proprio, 12 numbers (`env._proprio()`):
 |---|---|
 | `cardboard_yard_real/env.py` | the environment `CardboardYardRealEnv(physics='v4')` or `physics='v5'` (gymnasium API) |
 | `cardboard_yard_real/expert_v1.py` | scripted expert `LoaderExpertPolicyV1` (the v4 dataset's expert) |
+| `cardboard_yard_real/expert_v2.py` | `LoaderExpertPolicyV2`: expert v1 + brake pedal (physics v5) |
 | `cardboard_yard_real/physics.py`, `hydraulics.py`, `people.py`, `wa100_*.py` | physics profiles, hydraulics, walking people, the WA100-8 model |
 | `cardboard_yard_real/assets/` | textures, meshes, the scanned loader body, mesh cache |
 | `cardboard_yard/` | the base environment and expert it builds on |

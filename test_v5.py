@@ -4,6 +4,7 @@
   2. stopping from full speed: releasing the lever / full brake pedal / half pedal / parking brake
   3. parking brake holds the machine against full drive
   4. a drive with brake columns is saved, loaded and replayed exactly
+  5. expert v2 (expert_v2.py) gives 6-number actions and uses the brake on v5; on v4 it drives exactly like v1
 
     test_v5.py --dump out.npz --physics v4 --steps 300   # only write an expert trajectory (to compare two
                                                          # copies of the simulator, e.g. the original v4 zip)
@@ -20,11 +21,13 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
-def expert_run(physics, steps, seed=0):
+def expert_run(physics, steps, seed=0, expert='v1'):
     from cardboard_yard_real import CardboardYardRealEnv
     from cardboard_yard_real.expert_v1 import LoaderExpertPolicyV1
 
     env = CardboardYardRealEnv(physics=physics)
+    if expert == 'v2':
+        from cardboard_yard_real.expert_v2 import LoaderExpertPolicyV2 as LoaderExpertPolicyV1
     policy = LoaderExpertPolicyV1(seed=seed)
     env.reset(seed=seed)
     pro, act = [], []
@@ -133,6 +136,15 @@ def main():
     off = float(np.abs(env2._proprio() - end).max())
     good = act2.shape == (150, 6) and start['physics'] == 'v5' and how == 'seed' and off == 0.0
     print(f'  actions {act2.shape}, physics {start["physics"]}, start from {how}, replay off by {off}:', good)
+    ok &= good
+
+    print('5. expert v2 (brake pedal)')
+    c = expert_run('v4', args.steps, expert='v2')  # no brake in v4: must equal the v1 run `a` of check 1
+    same = all(np.array_equal(a[k], c[k][:, :4] if k == 'action' else c[k]) for k in a)
+    e = expert_run('v5', args.steps, expert='v2')
+    n_brake = int((e['action'][:, 4] > 0).sum())
+    good = same and e['action'].shape[1] == 6 and n_brake > 0 and not e['action'][:, 5].any()
+    print(f'  on v4 equal to v1: {same}; on v5: actions {e["action"].shape}, brake on {n_brake} steps:', good)
     ok &= good
 
     print('ALL OK' if ok else 'FAILED')

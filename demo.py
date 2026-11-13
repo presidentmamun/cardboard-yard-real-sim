@@ -3,6 +3,7 @@
     python demo.py --viewer                       # live 3D window
     python demo.py --video yard.mp4 --steps 700   # 2x2 camera video, no window
     python demo.py --csv ep.csv --steps 3000      # per-step time, 4 actions, 12 proprio (+ ep_start.npz for replay.py)
+    python demo.py --expert v2 --viewer           # the braking expert on physics v5 (brake pedal in the action)
 
 The video is a 2x2 grid: chase (follows the loader) | top (the view the world model sees)
 on top, cab (front, onboard) | rear (back, onboard) below.
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from cardboard_yard_real import CardboardYardRealEnv
 from cardboard_yard_real.expert_v1 import LoaderExpertPolicyV1
+from cardboard_yard_real.expert_v2 import LoaderExpertPolicyV2
 from recording import Recorder
 
 
@@ -27,7 +29,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--steps', type=int, default=700)
     ap.add_argument('--seed', type=int, default=0)
-    ap.add_argument('--physics', default='v4')
+    ap.add_argument('--physics', default=None, help='default: v4 with expert v1, v5 with expert v2')
+    ap.add_argument('--expert', default='v1', choices=['v1', 'v2'],
+                    help="v1 = the v4 dataset's expert (no brake); v2 = v1 + brake pedal (needs physics v5)")
     ap.add_argument('--video', default=None, help='write an mp4 here')
     ap.add_argument('--csv', default=None, help='write time, action and proprio per step here')
     ap.add_argument('--viewer', action='store_true', help='open the MuJoCo viewer')
@@ -35,8 +39,12 @@ def main():
     ap.add_argument('--noise-scale', type=float, default=0.0)
     args = ap.parse_args()
 
-    env = CardboardYardRealEnv(physics=args.physics)
-    policy = LoaderExpertPolicyV1(p_weak=args.p_weak, noise_scale=args.noise_scale, seed=args.seed)
+    physics = args.physics or ('v5' if args.expert == 'v2' else 'v4')
+    env = CardboardYardRealEnv(physics=physics)
+    if args.expert == 'v2' and not env.has_brake:
+        print(f'note: physics {physics} has no brake: expert v2 drives like v1 here')
+    cls = LoaderExpertPolicyV2 if args.expert == 'v2' else LoaderExpertPolicyV1
+    policy = cls(p_weak=args.p_weak, noise_scale=args.noise_scale, seed=args.seed)
     env.reset(seed=args.seed)
     rec = Recorder()
     rec.begin(env, args.seed)
@@ -62,7 +70,8 @@ def main():
             frames.append(np.concatenate([np.concatenate([v['chase'], v['top']], axis=1),
                                           np.concatenate([v['cab'], v['rear']], axis=1)], axis=0))
         if t % 50 == 0 or terminated:
-            print(f'step {t:4d}  in bucket={info["pieces_in_bucket"]:2d}  in hopper={info["pieces_in_hopper"]:2d}')
+            print(f'step {t:4d}  in bucket={info["pieces_in_bucket"]:2d}  in hopper={info["pieces_in_hopper"]:2d}'
+                  + (f'  brake={a[4]:.2f}' if len(a) > 4 else ''))
         if terminated:
             print('episode finished:', 'hit a person' if info['hit_worker'] else 'hopper target reached')
             break
