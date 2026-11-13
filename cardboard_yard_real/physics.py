@@ -90,6 +90,18 @@ PROFILES['v4'] = dict(
 )
 
 
+# v5 (2026-11-13): v4 + brakes. Same machine, site, hydraulics and people as v4; the only change is the control
+# 'brake_decel': the action gets two optional numbers, [4] brake pedal 0..1 and [5] parking brake 0/1 (env.py).
+# With a 4-number action (or brake 0, parking off) v5 steps exactly like v4.
+# brake_decel 3.5 m/s^2 with the pedal fully down is an estimate (about 0.35 g, a firm stop of a 7 t loader on
+# concrete: 3 m/s -> 0 in 1.0 s, 1.4 m (test_v5.py), not from a Komatsu data sheet. Releasing the drive lever still gives the
+# v4 HST-like slow-down (max_accel 1 m/s^2).
+PROFILES['v5'] = dict(
+    PROFILES['v4'],
+    control={**PROFILES['v4']['control'], 'brake_decel': 3.5},
+)
+
+
 def machine(profile):
     """Machine of a profile (cardboard_yard Machine): v0 loader unless the profile names another."""
     from cardboard_yard.env import MACHINE_V0

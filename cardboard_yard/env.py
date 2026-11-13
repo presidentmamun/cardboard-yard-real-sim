@@ -499,6 +499,10 @@ class CardboardYardEnv(gym.Env):
     layout = LAYOUT_V0  # where pile, hopper, walls and columns are (Layout)
     machine = MACHINE_V0  # loader size and limits (Machine)
     drive_sub = 5  # substeps between drive target updates
+    # service / parking brake (physics v5). brake_decel None = no brake (v0-v4: unchanged). Else m/s^2 the commanded
+    # speed drops at with the pedal fully down; _brake (0..1) and _park are set by the subclass before each step.
+    brake_decel = None
+    _brake, _park = 0.0, False
     KIND_IDLE, KIND_CROSS, KIND_PATROL = 0, 1, 2
 
     def __init__(
@@ -964,12 +968,19 @@ class CardboardYardEnv(gym.Env):
 
         sub = self.drive_sub  # recompute drive targets / move people a few times per step
         h = sub * self.model.opt.timestep
+        dv_max = self.max_accel * h  # largest change of the commanded speed per drive update
+        if self.brake_decel is not None and (self._brake > 0.0 or self._park):
+            # brake pedal: the drive is cut (speed goal 0) and the speed drops faster the further the pedal is down
+            # (max_accel with the pedal just touched .. brake_decel fully down). Parking brake = full brake, held.
+            b = 1.0 if self._park else self._brake
+            v_goal = 0.0
+            dv_max = (self.max_accel + b * (self.brake_decel - self.max_accel)) * h
         for k in range(self.frame_skip):
             f = (k + 1) / self.frame_skip  # arm targets slide over the step, no jumps
             ctrl[self._act['boom']] = boom0 + f * (self._boom_target - boom0)
             ctrl[self._act['bucket']] = bucket0 + f * (self._bucket_target - bucket0)
             if k % sub == 0:
-                v += float(np.clip(v_goal - v, -self.max_accel * h, self.max_accel * h))
+                v += float(np.clip(v_goal - v, -dv_max, dv_max))
                 steer += float(np.clip(steer_goal - steer, -self.steer_rate * h, self.steer_rate * h))
                 ctrl[self._act['steer']] = steer
                 self._v_cmd, self._steer_cmd = v, steer

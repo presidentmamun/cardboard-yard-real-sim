@@ -1,4 +1,4 @@
-# CardboardYardReal simulator v4 (standalone)
+# CardboardYardReal simulator v5 (standalone)
 
 A Komatsu WA100-8 wheel loader in a 3D MuJoCo copy of the real recycling site: it scoops cardboard from a
 pile and dumps it into the hopper, with obstacles and people walking around. Physics v4 = hydraulics with
@@ -7,6 +7,43 @@ physics) that made the v4 world-model dataset. The folder runs on its own, witho
 
 The loader body mesh is a CC BY-NC-SA scan (non-commercial, credit the author): see
 `cardboard_yard_real/assets/komatsu_scan/LICENSE.txt`.
+
+![Expert loader moving cardboard to the hopper](media/demo.gif)
+
+The scripted expert fills the hopper (chase camera, 2x speed). Full 4-camera video (chase, top, cab, rear): [media/demo.mp4](media/demo.mp4).
+
+| Manual drive, parking brake on | Pedal mode, braking |
+|---|---|
+| ![status panel with parking brake](media/manual_parking_brake.png) | ![pedal mode braking](media/manual_pedal_brake.png) |
+
+## New in v5 (2026-11-13)
+
+v5 = the v4 simulator + brakes and better manual controls. v4 itself is unchanged: `--physics v4` (and any
+4-number action in v5) steps bit-for-bit like the simulator that made the v4 dataset (`test_v5.py` checks this).
+
+| New | What it is |
+|---|---|
+| Brake pedal | Space (or S in pedal mode, or the left trigger): cuts the drive and stops the machine faster than releasing the lever. Analog: 0..1. |
+| Parking brake | B: holds the machine, the drive lever does nothing until you release it. Put on while moving = full brake. |
+| Pedal drive mode | M (or `--drive-mode pedal`): direction selector F / N / R (E / Q) + accelerator pedal (W), like the real HST machine. |
+| Status panel | Bottom left: speed (km/h), direction, drive / accelerator / brake bars, parking brake, boom and bucket angle, lift / tilt pressure. H hides it. |
+| CSV | v5 drives have two more action columns: `brake_pedal`, `park_brake`. `_start.npz` also holds the physics profile, so `replay.py` picks it by itself. |
+
+Stopping from full speed (3 m/s = 10.8 km/h), measured with `test_v5.py`:
+
+| How | Time | Distance |
+|---|---|---|
+| lever released (v4 behaviour, HST slow-down) | 3.1 s | 4.7 m |
+| brake pedal half | 1.5 s | 2.2 m |
+| brake pedal full / parking brake | 1.0 s | 1.4 m |
+
+Limits of the brake model (be aware when you use the data):
+- The full-brake deceleration (3.5 m/s2, `brake_decel` in `cardboard_yard_real/physics.py`) is an estimate, not
+  from a Komatsu data sheet.
+- The loader is driven by a speed controller on a flat floor: the brake makes the commanded speed drop faster.
+  There are no brake discs, no wheel lock / skid, and no slopes, so "holds on a slope" cannot be tested here.
+- The scripted expert (`demo.py`) does not use the brake: it drives exactly as in v4.
+- Hard braking with a full, raised bucket can throw cardboard out (the pieces are real bodies), as on the real machine.
 
 ## Setup (once)
 
@@ -39,7 +76,12 @@ The first start takes a minute or two (it loads the meshes and textures). Render
 
 | Key | Action |
 |---|---|
-| W / S | drive forward / back |
+| W / S | drive forward / back (lever mode) |
+| Space | brake pedal |
+| B | parking brake on / off |
+| M | drive mode: lever <-> pedal |
+| W, S, E / Q | pedal mode: W accelerator, S brake, E / Q direction up / down (R - N - F; starts in N) |
+| H | status panel on / off |
 | A / D | steer left / right |
 | I / K | boom up / down |
 | J / L | bucket curl (lip up, holds the load) / dump (lip down) |
@@ -63,6 +105,10 @@ Default layout (Xbox-style pad):
 | left stick left / right | steer left / right |
 | right stick up / down | boom up / down |
 | right stick left / right | bucket curl (lip up) / dump |
+| left trigger (axis 4) | brake pedal (`--joy-brake <axis>`, -1 = none) |
+| right trigger (axis 5) | accelerator in pedal mode (`--joy-accel <axis>`) |
+| LB / RB (buttons 4 / 5) | direction down / up in pedal mode |
+| button 1 (B) | parking brake on / off |
 | button 0 (A) | save the drive now (like P) |
 | button 7 (Start) | new episode (like R) |
 
@@ -110,7 +156,8 @@ bit-exact (the state does not hold the solver's warm start and the people's rand
 Notes:
 - Keep the actions at full precision. The saved CSVs write them with 9 digits; rounding them to 5 digits
   already made a 1000-step replay drift by up to 0.35 m (cardboard contacts amplify tiny differences).
-- Replay with the same physics profile (`--physics v4`, the default) as the drive.
+- Replay with the same physics profile as the drive. Drives saved by v5 programs store it in `_start.npz` and
+  `replay.py` uses it; older drives and dataset episodes have none and replay with v4. `--physics` overrides.
 
 ## Data per step (one step = 0.1 s, 10 Hz)
 
@@ -122,6 +169,13 @@ Action, 4 numbers in [-1, 1]:
 | 1 | steering | steer left / right |
 | 2 | boom_lever | boom up (+) / down |
 | 3 | bucket_lever | bucket curl (+, lip up) / dump |
+
+With physics v5 the action may have two more numbers (leave them out, or 0, to drive as in v4):
+
+| # | Column | Meaning |
+|---|---|---|
+| 4 | brake_pedal | 0 (up) .. 1 (fully down): cuts the drive, stops faster |
+| 5 | park_brake | 1 = on (above 0.5): machine held, drive ignored |
 
 Proprio, 12 numbers (`env._proprio()`):
 
@@ -142,7 +196,7 @@ Proprio, 12 numbers (`env._proprio()`):
 
 | Path | Content |
 |---|---|
-| `cardboard_yard_real/env.py` | the environment `CardboardYardRealEnv(physics='v4')` (gymnasium API) |
+| `cardboard_yard_real/env.py` | the environment `CardboardYardRealEnv(physics='v4')` or `physics='v5'` (gymnasium API) |
 | `cardboard_yard_real/expert_v1.py` | scripted expert `LoaderExpertPolicyV1` (the v4 dataset's expert) |
 | `cardboard_yard_real/physics.py`, `hydraulics.py`, `people.py`, `wa100_*.py` | physics profiles, hydraulics, walking people, the WA100-8 model |
 | `cardboard_yard_real/assets/` | textures, meshes, the scanned loader body, mesh cache |
@@ -150,6 +204,8 @@ Proprio, 12 numbers (`env._proprio()`):
 | `demo.py`, `manual.py`, `replay.py` | the programs above |
 | `recording.py` | saves / loads a drive (CSV + `_start.npz`) |
 | `joy_test.py` | shows a joystick's axis / button numbers (for `--joy-map`) |
+| `controls.py` | pedal drive mode and gamepad triggers for `manual.py` |
+| `test_v5.py` | checks: v5 without brake = v4, stopping distances, parking brake, save / replay with brake columns |
 
 Use in your own code:
 
@@ -162,5 +218,6 @@ obs, info = env.reset(seed=0)
 policy = LoaderExpertPolicyV1(seed=0)
 obs, reward, terminated, truncated, info = env.step(policy.act_single(env))
 img = env.render()           # 224x224 RGB from the top camera (what the world model sees)
+# physics='v5': env.step([drive, steer, boom, bucket, brake_pedal, park_brake]); env.forward_speed() in m/s
 proprio = env._proprio()     # the 12 values above
 ```

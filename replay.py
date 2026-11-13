@@ -28,7 +28,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('csv')
     ap.add_argument('--seed', type=int, default=0, help='only used when there is no _start.npz')
-    ap.add_argument('--physics', default='v4')
+    ap.add_argument('--physics', default=None,
+                    help='physics profile; default: the one saved with the drive (_start.npz), else v4')
     ap.add_argument('--camera', default='chase', choices=CAMERAS)
     ap.add_argument('--video', default=None, help='write a 2x2 camera mp4 here instead of a window')
     ap.add_argument('--check', action='store_true', help='no window, no video: only compare with the CSV')
@@ -39,7 +40,11 @@ def main():
     act, pro, start = load(args.csv)
     print(f'{len(act)} steps; start: ' + ('saved start state' if start is not None else f'seed {args.seed} (no _start.npz)')
           + ('' if start is None or start['rng'] else ', no random-generator state: walking people may differ'))
-    env = CardboardYardRealEnv(physics=args.physics)
+    physics = args.physics or (start or {}).get('physics') or 'v4'
+    if act.shape[1] > 4 and physics in ('v0', 'v1', 'v2', 'v3', 'v4'):
+        print(f'warning: the CSV has brake columns but physics {physics} has no brake: they are ignored')
+    print('physics', physics)
+    env = CardboardYardRealEnv(physics=physics)
     how = restart(env, start, args.seed)
     print('started from ' + ('the seed (exact replay)' if how == 'seed' else 'the saved state (close, small drift)'))
 
@@ -76,8 +81,12 @@ def main():
         if screen is not None:
             img = env.render(camera=CAMERAS[cam], width=args.width, height=args.height)
             screen.blit(pygame.surfarray.make_surface(img.swapaxes(0, 1)), (0, 0))
-            hud = (f'REPLAY {CAMERAS[cam]} | step {t}/{len(act)} | action {np.round(act[t - 1], 2)} | '
+            hud = (f'REPLAY {CAMERAS[cam]} | step {t}/{len(act)} | action {np.round(act[t - 1, :4], 2)} | '
                    f'off by {err_pos[-1]:.2f} m | hopper {info["pieces_in_hopper"]}')
+            if act.shape[1] > 4 and act[t - 1, 4] > 0:
+                hud += f' | BRAKE {act[t - 1, 4]:.1f}'
+            if act.shape[1] > 5 and act[t - 1, 5] > 0.5:
+                hud += ' | PARK'
             screen.blit(font.render(hud, True, (0, 255, 255), (0, 0, 0)), (8, 8))
             pygame.display.flip()
             time.sleep(max(0.0, env.dt - (time.time() - t0)))

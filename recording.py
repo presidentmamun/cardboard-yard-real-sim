@@ -1,5 +1,6 @@
-"""Save / load a drive: one CSV row per step (time, 4 actions, 12 proprio) plus <name>_start.npz with the
-episode's start (full sim state + random generator state), so replay.py can run the same drive again."""
+"""Save / load a drive: one CSV row per step (time, 4 actions [+ brake pedal, parking brake with physics v5],
+12 proprio) plus <name>_start.npz with the episode's start (full sim state + random generator state + physics
+profile), so replay.py can run the same drive again."""
 
 import csv
 import json
@@ -9,6 +10,7 @@ import os
 import numpy as np
 
 ACTION = ['drive', 'steering', 'boom_lever', 'bucket_lever']
+ACTION_BRAKE = ['brake_pedal', 'park_brake']  # physics v5 only: pedal 0..1, parking brake 0 / 1
 PROPRIO = ['pos_x_m', 'pos_y_m', 'yaw_cos', 'yaw_sin', 'vel_x_mps', 'vel_y_mps', 'steer_angle_rad', 'boom_angle_rad',
            'bucket_angle_rad', 'yaw_rate_radps', 'lift_cyl_pressure_mpa', 'tilt_cyl_pressure_mpa']
 
@@ -21,7 +23,8 @@ def start_of(env, seed=None):
                             env.pile_center, env.pile_half]).astype(np.float64)
     return {'state': state,
             'rng': json.dumps(env.np_random.bit_generator.state),
-            'seed': -1 if seed is None else int(seed)}
+            'seed': -1 if seed is None else int(seed),
+            'physics': str(getattr(env, 'physics', ''))}
 
 
 def start_path(csv_path):
@@ -30,7 +33,7 @@ def start_path(csv_path):
 
 class Recorder:
     def __init__(self):
-        self.rows, self.start = [], None
+        self.rows, self.start, self.n_act = [], None, len(ACTION)
 
     def begin(self, env, seed=None):
         self.rows, self.start = [], start_of(env, seed)
@@ -40,26 +43,31 @@ class Recorder:
         float32 precision (9 digits): rounded actions make the replay drift (contacts amplify tiny differences)."""
         p = env._proprio()
         t = len(self.rows)
-        self.rows.append([f'{t * env.dt:.2f}', t] + [f'{v:.9g}' for v in np.asarray(action, np.float32)] + [f'{v:.5f}' for v in p]
+        action = np.asarray(action, np.float32).reshape(-1)
+        self.n_act = len(action)  # 4, or 6 with the brake columns
+        self.rows.append([f'{t * env.dt:.2f}', t] + [f'{v:.9g}' for v in action] + [f'{v:.5f}' for v in p]
                          + [f'{math.degrees(math.atan2(p[3], p[2])):.2f}'])
 
     def save(self, path):
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with open(path, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(['time_s', 'step'] + ACTION + PROPRIO[:len(self.rows[0]) - 7] + ['yaw_deg'])
+            n_pro = len(self.rows[0]) - 3 - self.n_act
+            w.writerow(['time_s', 'step'] + (ACTION + ACTION_BRAKE)[:self.n_act] + PROPRIO[:n_pro] + ['yaw_deg'])
             w.writerows(self.rows)
         np.savez(start_path(path), **self.start)
         return path
 
 
 def load(path):
-    """-> actions (T, 4), proprio (T, P), start dict or None (no _start.npz next to the CSV)."""
+    """-> actions (T, 4) or (T, 6) with the brake columns, proprio (T, P), start dict or None (no _start.npz
+    next to the CSV)."""
     with open(path, newline='') as f:
         r = csv.DictReader(f)
         rows = list(r)
         cols = r.fieldnames
-    act = np.array([[float(x[c]) for c in ACTION] for x in rows], np.float32)
+    acols = ACTION + [c for c in ACTION_BRAKE if c in cols]
+    act = np.array([[float(x[c]) for c in acols] for x in rows], np.float32)
     n = len(act)
     while n and not np.isfinite(act[n - 1]).all():  # dataset episodes end with an observation-only row (nan action)
         n -= 1
@@ -70,7 +78,8 @@ def load(path):
     start = None
     if os.path.exists(sp):
         z = np.load(sp)
-        start = {'state': z['state'], 'rng': str(z['rng']) if 'rng' in z else '', 'seed': int(z['seed']) if 'seed' in z else -1}
+        start = {'state': z['state'], 'rng': str(z['rng']) if 'rng' in z else '', 'seed': int(z['seed']) if 'seed' in z else -1,
+                 'physics': str(z['physics']) if 'physics' in z else ''}
     return act, pro, start
 
 

@@ -881,6 +881,18 @@ class CardboardYardRealEnv(WalkingPeople, CardboardYardEnv):
             n = self.observation_space.shape[0] + 2
             self.observation_space = spaces.Box(-np.inf, np.inf, (n,), np.float32)
         self.env_name = 'CardboardYardReal'
+        if self.brake_decel is not None:  # v5: action = the 4 levers + [brake pedal 0..1, parking brake 0/1]
+            self.action_space = spaces.Box(np.array([-1, -1, -1, -1, 0, 0], np.float32), np.ones(6, np.float32))
+
+    @property
+    def has_brake(self):
+        return self.brake_decel is not None
+
+    def forward_speed(self):
+        """Ground speed along the machine's heading (m/s, + forward): what the speedometer shows."""
+        _, _, yaw = self.loader_pose()
+        d = self.data
+        return float(d.qvel[self._dadr['base_x']] * math.cos(yaw) + d.qvel[self._dadr['base_y']] * math.sin(yaw))
 
     def _proprio(self):
         p = super()._proprio()
@@ -892,6 +904,13 @@ class CardboardYardRealEnv(WalkingPeople, CardboardYardEnv):
         return build_real_xml(n_pieces, self.physics, self.looks)
 
     def step(self, action):
+        # v5: action[4] = brake pedal (0..1), action[5] = parking brake (> 0.5 = on). Both are optional: a 4-number
+        # action drives exactly like v4. Profiles without a brake (v0-v4) use only the first 4 numbers.
+        a = np.asarray(action, np.float64).reshape(-1)
+        if self.brake_decel is not None:
+            self._brake = float(np.clip(a[4], 0.0, 1.0)) if a.size > 4 else 0.0
+            self._park = bool(a[5] > 0.5) if a.size > 5 else False
+        action = a[:4]
         if self.hydraulic is not None:  # physics v3: force / flow / power limits of the hydraulics
             action = self.hydraulic.limit(self, action)
         return super().step(action)
