@@ -787,6 +787,7 @@ class CardboardYardEnv(gym.Env):
             self._renderer = None
         mujoco.mj_resetData(self.model, self.data)
         self._grid = None
+        self._brake, self._park = 0.0, False  # new episode: brakes released
         self._goal = None if options.get('goal') is None else np.asarray(options['goal'], np.float64)
         if 'state' in options:
             self._set_state(np.asarray(options['state'], np.float64))

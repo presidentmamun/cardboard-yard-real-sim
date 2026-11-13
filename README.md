@@ -2,8 +2,16 @@
 
 A Komatsu WA100-8 wheel loader in a 3D MuJoCo copy of the real recycling site: it scoops cardboard from a
 pile and dumps it into the hopper, with obstacles and people walking around. Physics v4 = hydraulics with
-force / flow limits and lift / tilt cylinder pressures. This is the same simulator (same code, same
-physics) that made the v4 world-model dataset. The folder runs on its own, without the stable-worldmodel project.
+force / flow limits and lift / tilt cylinder pressures: the simulator that made the v4 world-model dataset.
+Physics v5 = v4 + brakes (below). The folder runs on its own, without the stable-worldmodel project.
+
+Which physics each program uses when you give no `--physics`:
+
+| Program | Default | Why |
+|---|---|---|
+| `manual.py` (`run_manual.bat`) | v5 | you get the brake pedal and parking brake |
+| `demo.py` (`run_demo.bat`) | v4 with expert v1 | the v4 dataset's setting; `--expert v2` switches to v5 |
+| `replay.py` (`run_replay.bat`) | the one saved with the drive | older drives and dataset episodes: v4 |
 
 The loader body mesh is a CC BY-NC-SA scan (non-commercial, credit the author): see
 `cardboard_yard_real/assets/komatsu_scan/LICENSE.txt`.
@@ -28,6 +36,7 @@ v5 = the v4 simulator + brakes and better manual controls. v4 itself is unchange
 | Pedal drive mode | M (or `--drive-mode pedal`): direction selector F / N / R (E / Q) + accelerator pedal (W), like the real HST machine. |
 | Status panel | Bottom left: speed (km/h), direction, drive / accelerator / brake bars, parking brake, boom and bucket angle, lift / tilt pressure. H hides it. |
 | CSV | v5 drives have two more action columns: `brake_pedal`, `park_brake`. `_start.npz` also holds the physics profile, so `replay.py` picks it by itself. |
+| Yard limit | The site has walls only in the north and west. In v4 you can drive east or south off the drawn floor and on for ever. In v5 the drive stops working about 12 m past the working area (x > 30 m or y < -30 m); the window shows `YARD LIMIT` and you can only drive back in. |
 
 Stopping from full speed (3 m/s = 10.8 km/h), measured with `test_v5.py`:
 
@@ -132,7 +141,7 @@ Default layout (Xbox-style pad):
 
 | Stick / button | Action |
 |---|---|
-| left stick up / down | drive forward / back |
+| left stick up / down | drive forward / back (lever mode) |
 | left stick left / right | steer left / right |
 | right stick up / down | boom up / down |
 | right stick left / right | bucket curl (lip up) / dump |
@@ -168,9 +177,9 @@ The drive up to the end is saved automatically (see below), also after an accide
 
 1. Drive with `run_manual.bat`. When you press R or Esc, or the episode ends, the drive is saved in the
    `drives` folder as two files:
-   - `drives\drive_<date>_<time>_seed<N>.csv`: one row per step: time, your 4 actions and the 12 proprio values
-     (columns in "Data per step" below). Open it in Excel or Python.
-   - `drives\drive_<date>_<time>_seed<N>_start.npz`: how the episode started (seed, full sim state). Keep it
+   - `drives\drive_<date>_<time>_seed<N>.csv`: one row per step: time, your 4 actions (6 with physics v5: + brake
+     pedal, parking brake) and the 12 proprio values (columns in "Data per step" below). Open it in Excel or Python.
+   - `drives\drive_<date>_<time>_seed<N>_start.npz`: how the episode started (seed, full sim state, physics). Keep it
      next to the CSV: without it the replay cannot rebuild the same yard.
    `manual.py --no-save` turns saving off; `--out-dir D:\mydrives` saves elsewhere.
 2. Watch it again: drag the CSV onto `run_replay.bat`, or
@@ -247,7 +256,7 @@ Proprio, 12 numbers (`env._proprio()`):
 | `recording.py` | saves / loads a drive (CSV + `_start.npz`) |
 | `joy_test.py` | shows a joystick's axis / button numbers (for `--joy-map`) |
 | `controls.py` | pedal drive mode and gamepad triggers for `manual.py` |
-| `test_v5.py` | checks: v5 without brake = v4, stopping distances, parking brake, save / replay with brake columns |
+| `test_v5.py` | checks: v5 without brake = v4, stopping distances, parking brake, save / replay with brake columns, expert v2, yard limit, reset / spaces |
 
 Use in your own code:
 
@@ -257,7 +266,7 @@ from cardboard_yard_real import CardboardYardRealEnv
 from cardboard_yard_real.expert_v1 import LoaderExpertPolicyV1
 env = CardboardYardRealEnv(physics='v4', camera='top')
 obs, info = env.reset(seed=0)
-policy = LoaderExpertPolicyV1(seed=0)
+policy = LoaderExpertPolicyV1(p_weak=0.0, seed=0)   # p_weak: share of deliberately noisy episodes (default 0.3)
 obs, reward, terminated, truncated, info = env.step(policy.act_single(env))
 img = env.render()           # 224x224 RGB from the top camera (what the world model sees)
 # physics='v5': env.step([drive, steer, boom, bucket, brake_pedal, park_brake]); env.forward_speed() in m/s

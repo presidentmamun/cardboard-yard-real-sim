@@ -98,7 +98,10 @@ PROFILES['v4'] = dict(
 # v4 HST-like slow-down (max_accel 1 m/s^2).
 PROFILES['v5'] = dict(
     PROFILES['v4'],
-    control={**PROFILES['v4']['control'], 'brake_decel': 3.5},
+    # yard_limit (x0, x1, y0, y1): the v4 site has walls only in the north and west; east and south the loader could
+    # be driven off the drawn floor (40 m) and on for ever. v5 stops the drive 12 m past the working area there
+    # (the expert and the v4 dataset never come near: they stay within x -14 .. 18, y -18 .. 13.8).
+    control={**PROFILES['v4']['control'], 'brake_decel': 3.5, 'yard_limit': (-22.0, 30.0, -30.0, 14.0)},
 )
 
 

@@ -5,6 +5,8 @@
   3. parking brake holds the machine against full drive
   4. a drive with brake columns is saved, loaded and replayed exactly
   5. expert v2 (expert_v2.py) gives 6-number actions and uses the brake on v5; on v4 it drives exactly like v1
+  6. yard limit: on the open east / south sides the loader stops past the limit and can drive back in
+  7. a reset releases the brakes; observation / action spaces match what the env returns
 
     test_v5.py --dump out.npz --physics v4 --steps 300   # only write an expert trajectory (to compare two
                                                          # copies of the simulator, e.g. the original v4 zip)
@@ -146,6 +148,41 @@ def main():
     good = same and e['action'].shape[1] == 6 and n_brake > 0 and not e['action'][:, 5].any()
     print(f'  on v4 equal to v1: {same}; on v5: actions {e["action"].shape}, brake on {n_brake} steps:', good)
     ok &= good
+
+    print('6. yard limit (v5)')
+    import math
+
+    import mujoco
+
+    good = True
+    for heading, axis, sign in ((0.0, 0, 1), (-math.pi / 2, 1, -1)):  # east, south: no wall there
+        env.reset(seed=seed)
+        env.data.qpos[env._qadr['base_yaw']] = heading
+        mujoco.mj_forward(env.model, env.data)
+        for _ in range(400):
+            env.step([1, 0, 0, 0])
+        far = env.loader_pose()[axis]
+        lim = env.yard_limit[1] if axis == 0 else env.yard_limit[2]
+        stopped = abs(env.forward_speed()) < 0.02 and env.off_yard() and 0 < sign * (far - lim) < 6.0
+        for _ in range(60):
+            env.step([-1, 0, 0, 0])
+        back = env.loader_pose()[axis]
+        good &= bool(stopped and sign * (far - back) > 5.0)
+        print(f'  heading {math.degrees(heading):4.0f} deg: stops at {"x" if axis == 0 else "y"} = {far:.1f} (limit {lim}), '
+              f'reverses back to {back:.1f}:', bool(stopped and sign * (far - back) > 5.0))
+    ok &= good
+
+    print('7. reset and spaces')
+    env.reset(seed=seed)
+    env.step([1, 0, 0, 0, 1, 1])
+    obs, info = env.reset(seed=seed)
+    env4 = CardboardYardRealEnv(physics='v4')
+    obs4, _ = env4.reset(seed=seed)
+    good = (env._brake == 0.0 and env._park is False and env.observation_space.contains(obs)
+            and env.action_space.shape == (6,) and env4.action_space.shape == (4,) and env4.yard_limit is None
+            and np.array_equal(obs, obs4) and obs.shape[0] == env.proprio_dim + 9 + 15 + 3 * env.n_pieces + 2)
+    print(f'  brakes released, obs {obs.shape} in space, v5 reset obs == v4 reset obs:', bool(good))
+    ok &= bool(good)
 
     print('ALL OK' if ok else 'FAILED')
     sys.exit(0 if ok else 1)

@@ -235,6 +235,8 @@ def main():
         want = bool(k[pygame.K_w]) or abs(float(j[0])) > 0 or trig_accel.value() > 0
         if env.has_brake and park and want:
             msg = 'PARKING BRAKE ON - press B to release'
+        elif env.off_yard():
+            msg = 'YARD LIMIT - drive back towards the yard'
         elif mode == 'pedal' and pedal.gear == 0 and want:
             msg = 'NEUTRAL - press E (forward) or Q (reverse)'
         else:

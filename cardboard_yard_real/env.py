@@ -888,6 +888,22 @@ class CardboardYardRealEnv(WalkingPeople, CardboardYardEnv):
     def has_brake(self):
         return self.brake_decel is not None
 
+    yard_limit = None  # v5: (x0, x1, y0, y1) the articulation point may not be driven out of (physics.py)
+
+    def off_yard(self, drive=0.0):
+        """True when the machine is outside yard_limit and `drive` (lever, + forward) would take it further out.
+        drive 0: True whenever it is outside."""
+        if self.yard_limit is None:
+            return False
+        x0, x1, y0, y1 = self.yard_limit
+        x, y, yaw = self.loader_pose()
+        if x0 <= x <= x1 and y0 <= y <= y1:
+            return False
+        if drive == 0.0:
+            return True
+        dx, dy = math.cos(yaw) * drive, math.sin(yaw) * drive  # where the lever sends it
+        return (x > x1 and dx > 0) or (x < x0 and dx < 0) or (y > y1 and dy > 0) or (y < y0 and dy < 0)
+
     def forward_speed(self):
         """Ground speed along the machine's heading (m/s, + forward): what the speedometer shows."""
         _, _, yaw = self.loader_pose()
@@ -911,6 +927,11 @@ class CardboardYardRealEnv(WalkingPeople, CardboardYardEnv):
             self._brake = float(np.clip(a[4], 0.0, 1.0)) if a.size > 4 else 0.0
             self._park = bool(a[5] > 0.5) if a.size > 5 else False
         action = a[:4]
+        if self.yard_limit is not None and action[0] != 0.0 and self.off_yard(action[0]):
+            # v5: the open east / south sides of the yard have no wall. Past the yard limit the drive only works
+            # back towards the yard (the machine rolls out at max_accel), so it cannot be driven off the floor.
+            action = action.copy()
+            action[0] = 0.0
         if self.hydraulic is not None:  # physics v3: force / flow / power limits of the hydraulics
             action = self.hydraulic.limit(self, action)
         return super().step(action)
